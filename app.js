@@ -184,6 +184,39 @@
     }).join("")}</div>`;
   }
 
+  /* ================= ОБЩАЯ ОБВЯЗКА ЭКРАНОВ ================= */
+  function topbarHTML() {
+    return `<header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <div class="logo">B</div>
+          <div class="brand-text"><b>BIMduo</b><span>тренажёр к срезу</span></div>
+        </div>
+        <div class="top-actions">
+          <div class="pill"><span class="pill-ico">🔥</span><b>${store.bestStreak}</b></div>
+          <div class="pill"><span class="pill-ico">⚡</span><b>${store.xp}</b> XP</div>
+          <button class="icon-btn" id="soundBtn" title="Звук">${store.sound ? "🔊" : "🔇"}</button>
+        </div>
+      </div>
+    </header>`;
+  }
+
+  function tabsHTML(active) {
+    return `<nav class="tabs">
+      <button class="tab ${active === "course" ? "active" : ""}" id="tabCourse">Курс</button>
+      <button class="tab ${active === "answers" ? "active" : ""}" id="tabAnswers">Ответы</button>
+    </nav>`;
+  }
+
+  function bindChrome(rerender) {
+    const c = document.getElementById("tabCourse");
+    const a = document.getElementById("tabAnswers");
+    if (c) c.addEventListener("click", renderHome);
+    if (a) a.addEventListener("click", () => { ansQuery = ""; ansFilter = "all"; renderAnswers(); });
+    const s = document.getElementById("soundBtn");
+    if (s) s.addEventListener("click", () => { store.sound = !store.sound; saveStore(); rerender(); });
+  }
+
   /* ================= ГЛАВНЫЙ ЭКРАН ================= */
   function renderHome() {
     session = null; Q = null;
@@ -194,21 +227,10 @@
     const reviewSize = Math.min(10, studied) || 10;
 
     app.innerHTML = `
-      <header class="topbar">
-        <div class="topbar-inner">
-          <div class="brand">
-            <div class="logo">B</div>
-            <div class="brand-text"><b>BIMduo</b><span>тренажёр к срезу</span></div>
-          </div>
-          <div class="top-actions">
-            <div class="pill"><span class="pill-ico">🔥</span><b>${store.bestStreak}</b></div>
-            <div class="pill"><span class="pill-ico">⚡</span><b>${store.xp}</b> XP</div>
-            <button class="icon-btn" id="soundBtn" title="Звук">${store.sound ? "🔊" : "🔇"}</button>
-          </div>
-        </div>
-      </header>
+      ${topbarHTML()}
 
       <main class="home">
+        ${tabsHTML("course")}
         <section class="path-hero">
           <div class="hero-text">
             <div class="eyebrow">Курс подготовки · 80 заданий</div>
@@ -292,8 +314,97 @@
         if (lv && !btn.disabled) startLevel(lv);
       });
     });
-    const s = document.getElementById("soundBtn");
-    if (s) s.addEventListener("click", () => { store.sound = !store.sound; saveStore(); renderHome(); });
+    bindChrome(renderHome);
+  }
+
+  /* ================= ВКЛАДКА «ОТВЕТЫ» ================= */
+  let ansFilter = "all";
+  let ansQuery = "";
+
+  function renderAnswers() {
+    session = null; Q = null;
+    app.innerHTML = `
+      ${topbarHTML()}
+      <main class="answers">
+        ${tabsHTML("answers")}
+
+        <div class="answers-head">
+          <div class="eyebrow">Шпаргалка</div>
+          <h1>Все ответы</h1>
+          <p>80 заданий: эталонные ответы и объяснения. Ищи по вопросу, ответу или теме.</p>
+
+          <div class="answers-filters">
+            <div class="seg">
+              <button class="seg-btn ${ansFilter === "all" ? "active" : ""}" data-f="all">Все 80</button>
+              <button class="seg-btn ${ansFilter === "v1" ? "active" : ""}" data-f="v1">Вариант 1</button>
+              <button class="seg-btn ${ansFilter === "v2" ? "active" : ""}" data-f="v2">Вариант 2</button>
+            </div>
+            <div class="search-wrap">
+              <span class="search-ico">🔎</span>
+              <input id="ansSearch" class="ans-search" type="search" placeholder="Поиск по вопросу и ответу" value="${esc(ansQuery)}">
+            </div>
+          </div>
+          <div class="ans-count" id="ansCount"></div>
+        </div>
+
+        <div id="answersList"></div>
+      </main>`;
+
+    document.querySelectorAll(".seg-btn").forEach(b => b.addEventListener("click", () => {
+      ansFilter = b.dataset.f;
+      renderAnswers();
+    }));
+    const inp = document.getElementById("ansSearch");
+    inp.addEventListener("input", () => { ansQuery = inp.value; renderAnswerList(); });
+    bindChrome(renderAnswers);
+    renderAnswerList();
+  }
+
+  function answerCardHTML(t, variant) {
+    return `<article class="ans-item">
+      <div class="ans-top">
+        <span class="ans-num">№ ${t.n}</span>
+        <span class="ans-type">${TYPE_LABEL[t.type] || ""}</span>
+        <span class="ans-variant">${variant === "v1" ? "Вариант 1" : "Вариант 2"} · ${t.section}</span>
+      </div>
+      <div class="ans-q">${esc(t.prompt)}</div>
+      <div class="ans-a">
+        <div class="ans-a-label">Ответ</div>
+        ${answerSummary(t)}
+      </div>
+      <div class="ans-e">
+        <div class="ans-a-label">Объяснение</div>
+        ${esc(t.explain || "")}
+      </div>
+    </article>`;
+  }
+
+  function renderAnswerList() {
+    const box = document.getElementById("answersList");
+    if (!box) return;
+    const q = ansQuery.trim().toLowerCase().replace(/ё/g, "е");
+    let found = 0;
+    let html = "";
+
+    [["v1", V1, "Вариант 1"], ["v2", V2, "Вариант 2"]].forEach(([key, course, label]) => {
+      if (ansFilter !== "all" && ansFilter !== key) return;
+      ["1.1", "1.2", "1.3", "1.4"].forEach(sec => {
+        const tasks = course.tasks.filter(t =>
+          t.section === sec &&
+          (!q || JSON.stringify(t).toLowerCase().replace(/ё/g, "е").includes(q))
+        );
+        if (!tasks.length) return;
+        found += tasks.length;
+        html += `<section class="ans-group">
+          <div class="ans-group-title">${label} · ${sec} ${SECTION_META[sec].title}</div>
+          ${tasks.map(t => answerCardHTML(t, key)).join("")}
+        </section>`;
+      });
+    });
+
+    box.innerHTML = html || `<div class="ans-empty">Ничего не нашлось. Попробуй другой запрос.</div>`;
+    const cnt = document.getElementById("ansCount");
+    if (cnt) cnt.textContent = `Найдено: ${found} из 80`;
   }
 
   /* ================= ЗАПУСК КОЛОДЫ ================= */
